@@ -25,12 +25,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-       
+          # Cache 設定已移除，避免報錯
 
-     - name: Install dependencies
+      - name: Install dependencies
         run: npm install
 
-      # 這裡會幫你自動修正 Tailwind 版本問題
       - name: Fix Tailwind Version
         run: npm install -D tailwindcss@3.4.17 postcss autoprefixer
 

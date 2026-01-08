@@ -27,7 +27,7 @@ jobs:
           node-version: "20"
           cache: 'npm'
 
-      - name: Install dependencies
+     - name: Install dependencies
         run: npm install
 
       # 這裡會幫你自動修正 Tailwind 版本問題

@@ -28,7 +28,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       # 這裡會幫你自動修正 Tailwind 版本問題
       - name: Fix Tailwind Version

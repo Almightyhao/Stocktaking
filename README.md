@@ -12,7 +12,7 @@
     * 自動計算建議 **安全存量 (Safety Stock)**。
     * 自動計算建議 **最高庫存 (Target Level)**。
     * 與現行醫院系統設定 (System SS/Target) 進行比較。
-* **📂 彈性資料匯入**：支援上傳 CSV 格式的急領清單與每日耗用檔，系統會自動偵測日期欄位。
+* **📂 彈性資料匯入**：支援上傳 CSV 格式的急領清單與每日耗用檔，系統會自動偵測日期欄位，不限天數。
 
 ## 🚀 開始使用
 
@@ -76,22 +76,16 @@ CSV 範例：
 📐 庫存管理公式
 本系統採用以下統計公式進行 PDCA 建議：
 
-1. 建議安全存量 (Safety Stock, SS)
+1. 建議安全存量 (Safety Stock, SS) $$ SS = Z \times Std \times \sqrt{LT} $$
 
-程式碼片段
-
-SS = Z \times Std \times \sqrt{LT}
 Z: 1.645 (95% 服務水準)
 
 Std: 每日消耗標準差
 
 LT: 前置時間 (Lead Time)，設定為 1 天
 
-2. 建議最高庫存 (Target Level)
+2. 建議最高庫存 (Target Level) $$ Target = Mean \times (R + LT) + SS $$
 
-程式碼片段
-
-Target = Mean \times (R + LT) + SS
 Mean: 平均日耗用量
 
 R: 檢視週期 (Review Period)，通常為 7 或 14 天

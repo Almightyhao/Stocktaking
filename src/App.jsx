@@ -715,7 +715,7 @@ export default function App() {
                                 <ul className="mt-2 text-xs text-indigo-600 space-y-1">
                                     <li>• Std: 每日消耗標準差 (資料來源: 欄位AU)</li>
                                     <li>• LT (Lead Time): 1 天</li>
-                                    <li>• 1.645: 95% 服務水準係數</li>
+                                    <li>• 1.645: 95% 信心水準係數</li>
                                 </ul>
                             </div>
                             <div className="bg-teal-50 p-4 rounded-lg">

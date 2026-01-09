@@ -34,8 +34,6 @@ const excelDateToJSDate = (serial) => {
 
 // 修正日期格式化函數：使用本地時間方法避免時區轉換導致日期減一
 const formatDate = (date) => {
-    // 舊方法: return date.toISOString().split('T')[0]; // 會轉成 UTC 導致 GMT+8 地區變成前一天
-    
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -121,19 +119,36 @@ const parseUrgentCSV = (csvText) => {
     
     const headers = parseLine(lines[0]);
     
-    // 強制日期欄位對照 G~AQ (索引 6~42)
+    // 找出日期欄位
     const dateColumns = [];
     const datePattern = /^\d{4}-\d{2}-\d{2}$/;
     
-    // 嘗試正規抓取
+    // 尋找特殊欄位索引：Sys_SS (衛材系統安全量), Sys_Target (衛材系統基準量)
+    let sysSSIndex = -1;
+    let sysTargetIndex = -1;
+    
     headers.forEach((header, index) => {
         const cleanHeader = header ? header.trim() : "";
+        
+        // 日期欄位偵測
         if (datePattern.test(cleanHeader)) {
             dateColumns.push({ index, date: cleanHeader });
         }
+        
+        // 衛材系統設定欄位偵測
+        if (cleanHeader.toLowerCase() === 'sys_ss' || cleanHeader.includes('Sys_SS')) {
+            sysSSIndex = index;
+        }
+        if (cleanHeader.toLowerCase() === 'sys_target' || cleanHeader.includes('Sys_Target')) {
+            sysTargetIndex = index;
+        }
     });
+    
+    // Fallback
+    if (sysSSIndex === -1 && headers.length > 43) sysSSIndex = 43;
+    if (sysTargetIndex === -1 && headers.length > 44) sysTargetIndex = 44;
 
-    // Fallback: 如果抓不到，強制生成
+    // Fallback Date Columns
     if (dateColumns.length < 10) {
         dateColumns.length = 0;
         let startDate = new Date(2025, 10, 30); // Nov 30
@@ -195,6 +210,9 @@ const parseUrgentCSV = (csvText) => {
              std = parseFloat(row[len - 7]) || 0;
              mean = parseFloat(row[len - 8]) || 0;
         }
+        
+        const sysSS = sysSSIndex > -1 ? (parseFloat(row[sysSSIndex]) || 0) : 0;
+        const sysTarget = sysTargetIndex > -1 ? (parseFloat(row[sysTargetIndex]) || 0) : 0;
 
         const type = (typeRaw || "").includes("Type A") ? "Type A (庫存不足)" :
                      (typeRaw || "").includes("Type B") ? "Type B (突發爆量)" : 
@@ -231,7 +249,9 @@ const parseUrgentCSV = (csvText) => {
             type,
             reviewPeriod,
             calculatedSS,
-            calculatedTarget
+            calculatedTarget,
+            sysSS,
+            sysTarget
         };
     }).filter(item => item !== null);
 
@@ -262,27 +282,22 @@ const Card = ({ title, value, subtext, icon: Icon, colorClass }) => (
     </div>
 );
 
-// 簡化圓餅圖標籤，只顯示百分比，避免雜亂的連線和文字重疊
-const renderSimpleLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-  const RADIAN = Math.PI / 180;
-  // 文字位置在圓餅內部靠外側
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.6;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
-  if (percent < 0.05) return null; // 太小不顯示
+// 修改後的外部標籤渲染函數 (拉線用)
+const renderExternalLabel = ({ x, y, cx, percent }) => {
+  // 只顯示 > 0 的數值
+  if (percent <= 0) return null;
 
   return (
     <text 
       x={x} 
       y={y} 
-      fill="white" 
-      textAnchor="middle" 
+      fill="#374151" 
+      textAnchor={x > cx ? 'start' : 'end'} 
       dominantBaseline="central" 
       fontSize="12"
       fontWeight="bold"
     >
-      {`${(percent * 100).toFixed(0)}%`}
+      {`${(percent * 100).toFixed(1)}%`}
     </text>
   );
 };
@@ -290,21 +305,26 @@ const renderSimpleLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent
 const DetailModal = ({ item, allEvents, consumptionMap, onClose }) => {
     if (!item) return null;
 
-    // 取得該藥品的所有急領事件
     const relatedEvents = allEvents.filter(e => e.drugCode === item.drugCode);
     const urgentDates = relatedEvents.map(e => e.urgentDate);
-
-    // 取得該藥品的耗用資料
     const consumptionData = consumptionMap.get(item.drugCode) || {};
 
-    // 整合圖表資料
-    const chartData = item.dailyStock.map(d => ({
-        date: d.date,
-        stock: d.stock,
-        consumption: consumptionData[d.date] !== undefined ? consumptionData[d.date] : 0,
-        建議安全量: item.calculatedSS,
-        建議最高庫存: item.calculatedTarget
-    }));
+    // 整合圖表資料 - 庫存日使用前一日結餘
+    const chartData = item.dailyStock.map((d, index) => {
+        const prevDayStock = index > 0 ? item.dailyStock[index - 1].stock : d.stock;
+
+        return {
+            date: d.date,
+            stock: prevDayStock, 
+            rawStock: d.stock,
+            consumption: consumptionData[d.date] !== undefined ? consumptionData[d.date] : 0,
+            
+            建議SS: item.calculatedSS,
+            建議Target: item.calculatedTarget,
+            系統SS: item.sysSS,
+            系統Target: item.sysTarget
+        };
+    });
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -362,23 +382,35 @@ const DetailModal = ({ item, allEvents, consumptionMap, onClose }) => {
                         <div className="bg-green-50 p-4 rounded-xl border border-green-100">
                             <h3 className="text-sm font-bold text-green-800 mb-3 flex items-center">
                                 <ClipboardCheck className="w-4 h-4 mr-2" /> 
-                                PDCA 建議標準
+                                PDCA 建議 vs 系統設定
                             </h3>
                             <div className="space-y-3 text-sm">
                                 <div className="pb-2 border-b border-green-200">
-                                    <p className="text-xs text-green-600 mb-1">建議安全存量 (SS)</p>
-                                    <div className="flex justify-between items-baseline">
-                                        <span className="text-2xl font-bold text-green-700">{Math.ceil(item.calculatedSS)}</span>
-                                        <span className="text-xs text-gray-400">1.645 × Std</span>
+                                    <p className="text-xs text-green-600 mb-1">安全存量 (SS)</p>
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex flex-col">
+                                            <span className="text-xs text-gray-400">PDCA建議</span>
+                                            <span className="text-xl font-bold text-green-700">{Math.ceil(item.calculatedSS)}</span>
+                                        </div>
+                                        <div className="flex flex-col text-right">
+                                            <span className="text-xs text-gray-400">目前系統(AR)</span>
+                                            <span className="text-xl font-bold text-purple-600">{Math.ceil(item.sysSS)}</span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div>
-                                    <p className="text-xs text-green-600 mb-1">建議最高庫存 (Target)</p>
-                                    <div className="flex justify-between items-baseline">
-                                        <span className="text-2xl font-bold text-green-700">{Math.ceil(item.calculatedTarget)}</span>
-                                        <span className="text-xs text-gray-400">Mean × (R+{1}) + SS</span>
+                                    <p className="text-xs text-green-600 mb-1">最高庫存 (Target)</p>
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex flex-col">
+                                            <span className="text-xs text-gray-400">PDCA建議</span>
+                                            <span className="text-xl font-bold text-green-700">{Math.ceil(item.calculatedTarget)}</span>
+                                        </div>
+                                        <div className="flex flex-col text-right">
+                                            <span className="text-xs text-gray-400">目前系統(AS)</span>
+                                            <span className="text-xl font-bold text-purple-600">{Math.ceil(item.sysTarget)}</span>
+                                        </div>
                                     </div>
-                                    <p className="text-xs text-gray-400 mt-1 text-right">R值 (檢視週期): {item.reviewPeriod} 天</p>
+                                    <p className="text-xs text-gray-400 mt-2 text-right">R值 (檢視週期): {item.reviewPeriod} 天</p>
                                 </div>
                             </div>
                         </div>
@@ -413,29 +445,28 @@ const DetailModal = ({ item, allEvents, consumptionMap, onClose }) => {
                                         minTickGap={20}
                                         padding={{ left: 10, right: 10 }}
                                     />
-                                    {/* 雙軸改為單軸，統一使用 left 軸 */}
                                     <YAxis 
                                         yAxisId="left" 
-                                        label={{ value: '數量 (庫存/耗用)', angle: -90, position: 'insideLeft' }} 
+                                        label={{ value: '數量', angle: -90, position: 'insideLeft' }} 
                                     />
                                     
                                     <RechartsTooltip 
                                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                                     />
-                                    <Legend verticalAlign="top" height={36}/>
+                                    <Legend verticalAlign="top" height={36} wrapperStyle={{fontSize: '11px'}}/>
                                     
-                                    {/* 建議值參考線 */}
-                                    <ReferenceLine yAxisId="left" y={item.calculatedSS} label={{ value: '建議SS', position: 'insideTopRight', fill: 'red', fontSize: 10 }} stroke="red" strokeDasharray="3 3" />
-                                    <ReferenceLine yAxisId="left" y={item.calculatedTarget} label={{ value: '建議Target', position: 'insideTopRight', fill: 'green', fontSize: 10 }} stroke="green" strokeDasharray="3 3" />
+                                    <ReferenceLine yAxisId="left" y={item.calculatedSS} stroke="red" strokeDasharray="3 3" label={{ value: '建議SS', position: 'insideTopRight', fill: 'red', fontSize: 10 }} />
+                                    <ReferenceLine yAxisId="left" y={item.calculatedTarget} stroke="green" strokeDasharray="3 3" label={{ value: '建議Target', position: 'insideTopRight', fill: 'green', fontSize: 10 }} />
                                     
-                                    {/* 標記所有急領事件 */}
+                                    <ReferenceLine yAxisId="left" y={item.sysSS} stroke="#9333ea" strokeWidth={1} label={{ value: '系統SS', position: 'insideLeft', fill: '#9333ea', fontSize: 10 }} />
+                                    <ReferenceLine yAxisId="left" y={item.sysTarget} stroke="#7e22ce" strokeWidth={1} label={{ value: '系統Target', position: 'insideLeft', fill: '#7e22ce', fontSize: 10 }} />
+
                                     {urgentDates.map((date, i) => (
                                          <ReferenceLine key={i} yAxisId="left" x={date} stroke="orange" label={{ value: '急領', position: 'insideTopLeft', fill: 'orange', fontSize: 10 }} />
                                     ))}
 
-                                    {/* 耗用 Bar 改用 left 軸，與庫存同一比例尺 */}
                                     <Bar yAxisId="left" dataKey="consumption" name="每日耗用" fill="#93c5fd" barSize={20} opacity={0.6} />
-                                    <Line yAxisId="left" type="monotone" dataKey="stock" name="每日庫存" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 6 }} connectNulls={true} />
+                                    <Line yAxisId="left" type="monotone" dataKey="stock" name="每日庫存(期初)" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 6 }} connectNulls={true} />
                                 </ComposedChart>
                             </ResponsiveContainer>
                            ) : (
@@ -445,7 +476,7 @@ const DetailModal = ({ item, allEvents, consumptionMap, onClose }) => {
                            )}
                         </div>
                         <div className="mt-4 text-xs text-gray-400 text-center">
-                            * 藍色折線: 庫存量 | 淺藍長條: 耗用量 (兩者同比例尺) | 橘色直線: 急領發生日
+                            * 藍色折線: 庫存量 (顯示前一日結餘作為當日可用) | 紫色線: 系統目前設定 | 紅綠虛線: PDCA建議值
                         </div>
                     </div>
                 </div>
@@ -649,12 +680,12 @@ export default function App() {
                                         data={pieData}
                                         cx="50%"
                                         cy="50%"
-                                        innerRadius={50}
-                                        outerRadius={80}
-                                        paddingAngle={5}
+                                        innerRadius={35} // 縮小內徑
+                                        outerRadius={70} // 縮小外徑以容納外部拉線
+                                        paddingAngle={2}
                                         dataKey="value"
-                                        label={renderSimpleLabel}
-                                        labelLine={false} // 隱藏拉線
+                                        label={renderExternalLabel} // 使用外部標籤
+                                        labelLine={true} // 啟用拉線
                                     >
                                         {pieData.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={entry.color} />
@@ -671,7 +702,6 @@ export default function App() {
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>
-                        {/* 灰字已併入圖例，此處說明可簡化 */}
                     </div>
 
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-2">

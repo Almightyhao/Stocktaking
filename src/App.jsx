@@ -831,6 +831,22 @@ export default function App() {
                     </div>
                 </section>
             </main>
+            {/* --- 新增頁尾 (Footer) 開始 --- */}
+            <footer className="max-w-7xl mx-auto px-4 py-6 text-center text-sm text-gray-500 border-t border-gray-200 mt-8">
+                <p>
+                    本工具原始碼與更新版可於{' '}
+                    <a 
+                        href="https://github.com/Almightyhao/Stocktaking" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                    >
+                        https://github.com/Almightyhao/Stocktaking
+                    </a>
+                    {' '}查找。
+                </p>
+            </footer>
+            {/* --- 新增頁尾 (Footer) 結束 --- */}
 
             {selectedDrug && (
                 <DetailModal 

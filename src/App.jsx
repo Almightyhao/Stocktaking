@@ -64,21 +64,6 @@ const parseCSVLine = (text) => {
     return result;
 };
 
-// 解析每日耗用 CSV
-// 加入一個輔助函數：標準化日期字串 (強制補零)
-const standardizeDateStr = (dateStr) => {
-    if (!dateStr) return "";
-    // 將 / 或 - 切割
-    const parts = dateStr.split(/[\/\-]/);
-    if (parts.length === 3) {
-        const year = parts[0];
-        // padStart(2, '0') 確保 1 變成 01
-        const month = parts[1].padStart(2, '0'); 
-        const day = parts[2].padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    }
-    return dateStr;
-};
 // --- 強效日期標準化工具 (修復單數日問題) ---
 const standardizeDateStr = (dateStr) => {
     if (!dateStr) return null;
@@ -126,9 +111,6 @@ const parseConsumptionCSV = (csvText) => {
         }
     });
     
-    // Debug: 可以在 Console 查看抓到了哪些日期，確認 01-09 是否存在
-    console.log("Detected Date Columns:", dateMapping.map(d => d.date));
-
     // Map: DrugCode -> Array of { date, value }
     const consumptionMap = new Map();
 
@@ -148,29 +130,6 @@ const parseConsumptionCSV = (csvText) => {
                 valStr = valStr.replace(/,/g, '').trim();
             }
             const val = parseFloat(valStr);
-            dailyData[dm.date] = isNaN(val) ? 0 : val;
-        });
-
-        consumptionMap.set(drugCode, dailyData);
-    });
-
-    return consumptionMap;
-};
-
-    // Map: DrugCode -> Array of { date, value }
-    const consumptionMap = new Map();
-
-    lines.slice(1).forEach(line => {
-        if (!line.trim()) return;
-        const row = parseLine(line);
-        if (row.length < 2) return;
-
-        const drugCode = row[0] ? row[0].trim() : "";
-        if (!drugCode) return;
-
-        const dailyData = {};
-        dateMapping.forEach(dm => {
-            const val = parseFloat(row[dm.index]);
             dailyData[dm.date] = isNaN(val) ? 0 : val;
         });
 

@@ -65,6 +65,22 @@ const parseCSVLine = (text) => {
 };
 
 // 解析每日耗用 CSV
+// 加入一個輔助函數：標準化日期字串 (強制補零)
+const standardizeDateStr = (dateStr) => {
+    if (!dateStr) return "";
+    // 將 / 或 - 切割
+    const parts = dateStr.split(/[\/\-]/);
+    if (parts.length === 3) {
+        const year = parts[0];
+        // padStart(2, '0') 確保 1 變成 01
+        const month = parts[1].padStart(2, '0'); 
+        const day = parts[2].padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+    return dateStr;
+};
+
+// 解析每日耗用 CSV (修正版)
 const parseConsumptionCSV = (csvText) => {
     const lines = csvText.trim().split(/\r\n|\n|\r/);
     if (lines.length < 2) return new Map();
@@ -73,17 +89,41 @@ const parseConsumptionCSV = (csvText) => {
     const headers = parseLine(lines[0]);
     
     // 找出日期欄位
-    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-    const dateMapping = []; // { index: 1, date: "2025-12-01" }
+    const datePattern = /^\d{4}-\d{1,2}-\d{1,2}$/; // 寬鬆匹配
+    const datePatternSlash = /^\d{4}\/\d{1,2}\/\d{1,2}$/; // 寬鬆匹配
+    const dateMapping = []; 
     
     headers.forEach((h, idx) => {
         const clean = h ? h.trim() : "";
-        if (datePattern.test(clean) || clean.match(/^\d{4}\/\d{1,2}\/\d{1,2}$/)) {
-            // Normalize date string if needed
-            let dStr = clean.replace(/\//g, '-');
+        if (datePattern.test(clean) || datePatternSlash.test(clean)) {
+            // 重點修正：使用標準化函數強制補零
+            let dStr = standardizeDateStr(clean);
             dateMapping.push({ index: idx, date: dStr });
         }
     });
+
+    // Map: DrugCode -> Array of { date, value }
+    const consumptionMap = new Map();
+
+    lines.slice(1).forEach(line => {
+        if (!line.trim()) return;
+        const row = parseLine(line);
+        if (row.length < 2) return;
+
+        const drugCode = row[0] ? row[0].trim() : "";
+        if (!drugCode) return;
+
+        const dailyData = {};
+        dateMapping.forEach(dm => {
+            const val = parseFloat(row[dm.index]);
+            dailyData[dm.date] = isNaN(val) ? 0 : val;
+        });
+
+        consumptionMap.set(drugCode, dailyData);
+    });
+
+    return consumptionMap;
+};
 
     // Map: DrugCode -> Array of { date, value }
     const consumptionMap = new Map();

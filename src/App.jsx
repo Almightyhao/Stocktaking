@@ -79,8 +79,34 @@ const standardizeDateStr = (dateStr) => {
     }
     return dateStr;
 };
+// --- 強效日期標準化工具 (修復單數日問題) ---
+const standardizeDateStr = (dateStr) => {
+    if (!dateStr) return null;
+    
+    // 1. 移除前後空白
+    const cleanStr = dateStr.trim();
+    
+    // 2. 使用非數字字符切割 (可處理 / , - , 空白 等所有分隔符)
+    // 例如 "2025/12/1" -> ["2025", "12", "1"]
+    // 例如 "2025/12/ 1" -> ["2025", "12", "1"] (空白被視為分隔)
+    const parts = cleanStr.split(/[^\d]+/);
+    
+    // 3. 檢查是否有足夠的部分 (年、月、日)
+    if (parts.length >= 3) {
+        const year = parts[0];
+        const month = parts[1];
+        const day = parts[2];
 
-// 解析每日耗用 CSV (修正版)
+        // 簡單驗證年份是否合理 (避免讀到非日期的數字欄位)
+        if (year.length === 4 && parseInt(year) > 2000) {
+            // 強制補零並組裝
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+    }
+    return null; // 非日期格式
+};
+
+// 解析每日耗用 CSV (強效版)
 const parseConsumptionCSV = (csvText) => {
     const lines = csvText.trim().split(/\r\n|\n|\r/);
     if (lines.length < 2) return new Map();
@@ -88,19 +114,20 @@ const parseConsumptionCSV = (csvText) => {
     const parseLine = parseCSVLine;
     const headers = parseLine(lines[0]);
     
-    // 找出日期欄位
-    const datePattern = /^\d{4}-\d{1,2}-\d{1,2}$/; // 寬鬆匹配
-    const datePatternSlash = /^\d{4}\/\d{1,2}\/\d{1,2}$/; // 寬鬆匹配
     const dateMapping = []; 
     
     headers.forEach((h, idx) => {
-        const clean = h ? h.trim() : "";
-        if (datePattern.test(clean) || datePatternSlash.test(clean)) {
-            // 重點修正：使用標準化函數強制補零
-            let dStr = standardizeDateStr(clean);
-            dateMapping.push({ index: idx, date: dStr });
+        // 使用強效標準化函數嘗試解析標頭
+        const standardizedDate = standardizeDateStr(h);
+        
+        // 只要解析出有效的 YYYY-MM-DD，就認定這欄是日期
+        if (standardizedDate) {
+            dateMapping.push({ index: idx, date: standardizedDate });
         }
     });
+    
+    // Debug: 可以在 Console 查看抓到了哪些日期，確認 01-09 是否存在
+    console.log("Detected Date Columns:", dateMapping.map(d => d.date));
 
     // Map: DrugCode -> Array of { date, value }
     const consumptionMap = new Map();
@@ -115,7 +142,12 @@ const parseConsumptionCSV = (csvText) => {
 
         const dailyData = {};
         dateMapping.forEach(dm => {
-            const val = parseFloat(row[dm.index]);
+            // 處理可能的千分位符號或空白
+            let valStr = row[dm.index];
+            if (valStr && typeof valStr === 'string') {
+                valStr = valStr.replace(/,/g, '').trim();
+            }
+            const val = parseFloat(valStr);
             dailyData[dm.date] = isNaN(val) ? 0 : val;
         });
 
